@@ -82,21 +82,32 @@ jobs:
               sudo yum install -y curl || sudo apt install -y curl
             fi
             
-            # Remove conflicting Nginx configs first (more thorough cleanup)
+            # Remove ALL conflicting Nginx configs (thorough cleanup)
             sudo rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
             sudo rm -f /etc/nginx/conf.d/default 2>/dev/null || true
             sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
             sudo rm -f /etc/nginx/sites-available/default 2>/dev/null || true
             sudo rm -f /etc/nginx/conf.d/flask.conf 2>/dev/null || true
             
-            # Configure Nginx using printf (avoids heredoc YAML issues)
-            printf 'server {\n    listen 80;\n    server_name _;\n    \n    location / {\n        proxy_pass http://127.0.0.1:5000;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n' | sudo tee /etc/nginx/conf.d/flask.conf > /dev/null
+            # List all config files before creating new one
+            echo "=== Existing Nginx config files ==="
+            sudo ls -la /etc/nginx/conf.d/ || echo "conf.d directory check failed"
+            
+            # Configure Nginx - use default_server to ensure this takes precedence
+            printf 'server {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n    server_name _;\n    \n    location / {\n        proxy_pass http://127.0.0.1:5000;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n' | sudo tee /etc/nginx/conf.d/flask.conf > /dev/null
             
             # Verify the config file was created
-            echo "Flask config file created:"
+            echo "=== Flask config file created ==="
             sudo cat /etc/nginx/conf.d/flask.conf
+            echo ""
+            
+            # Verify no default config files remain
+            echo "=== Checking for remaining default configs ==="
+            sudo find /etc/nginx -name "*default*" -type f 2>/dev/null || echo "No default configs found"
             
             # Test Nginx configuration
+            echo ""
+            echo "=== Testing Nginx configuration ==="
             sudo nginx -t
             
             # Kill existing Gunicorn processes
