@@ -108,31 +108,61 @@ jobs:
             
             # Kill existing Gunicorn processes
             pkill -f gunicorn || true
-            sleep 1
+            sleep 2
             
-            # Start Gunicorn in background
+            # Start Gunicorn with proper error handling
             cd /var/www/flask-cicd-demo
             source venv/bin/activate
             GUNICORN_CMD=$(which gunicorn)
-            echo "Starting Gunicorn from: $GUNICORN_CMD"
+            echo "Gunicorn location: $GUNICORN_CMD"
+            echo "Working directory: $(pwd)"
             
-            nohup $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 --timeout 120 wsgi:app > gunicorn.log 2>&1 &
-            sleep 3
+            # Start Gunicorn in background and capture PID
+            nohup $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile - --error-logfile - wsgi:app > /var/www/flask-cicd-demo/gunicorn.log 2>&1 &
+            GUNICORN_PID=$!
+            echo "Gunicorn started with PID: $GUNICORN_PID"
             
-            # Quick check if Gunicorn is running
-            if pgrep -f gunicorn > /dev/null; then
-              echo "✓ Gunicorn process started"
+            # Wait longer for Gunicorn to start
+            sleep 5
+            
+            # Verify Gunicorn is running
+            if ps -p $GUNICORN_PID > /dev/null 2>&1 || pgrep -f gunicorn > /dev/null; then
+              echo "✓ Gunicorn process is running"
+              pgrep -af gunicorn | head -n 1
             else
-              echo "⚠ Gunicorn process check failed, but continuing..."
-              tail -n 5 gunicorn.log 2>/dev/null || true
+              echo "✗ Gunicorn failed to start. Checking logs:"
+              tail -n 20 /var/www/flask-cicd-demo/gunicorn.log 2>/dev/null || echo "No log file found"
+              echo "Attempting to start Gunicorn again..."
+              cd /var/www/flask-cicd-demo
+              source venv/bin/activate
+              $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 wsgi:app > /var/www/flask-cicd-demo/gunicorn2.log 2>&1 &
+              sleep 5
             fi
             
-            # Quick test if Gunicorn responds
-            timeout 3 curl -s http://127.0.0.1:5000 > /dev/null && echo "✓ Gunicorn responding" || echo "⚠ Gunicorn may still be starting"
+            # Verify Gunicorn is listening on port 5000
+            for i in {1..10}; do
+              if timeout 2 curl -s http://127.0.0.1:5000 > /dev/null 2>&1; then
+                echo "✓ Gunicorn is responding on port 5000"
+                curl -s http://127.0.0.1:5000 | head -c 100
+                break
+              else
+                echo "Waiting for Gunicorn to start... ($i/10)"
+                sleep 2
+              fi
+            done
+            
+            # Verify Gunicorn is running before restarting Nginx
+            if ! pgrep -f gunicorn > /dev/null; then
+              echo "⚠ WARNING: Gunicorn is not running! Check logs above."
+              tail -n 30 /var/www/flask-cicd-demo/gunicorn.log 2>/dev/null || true
+            fi
             
             # Restart Nginx
             sudo systemctl restart nginx 2>/dev/null || sudo service nginx restart 2>/dev/null
             sudo systemctl enable nginx 2>/dev/null || sudo chkconfig nginx on 2>/dev/null
+            
+            # Wait a moment for Nginx to restart
+            sleep 2
             
             # Quick final verification (with timeouts to prevent hanging)
             echo "=== Quick Status Check ==="
