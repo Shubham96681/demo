@@ -1,0 +1,29 @@
+name: Deploy Flask App to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /var/www/flask-cicd-demo
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            pkill gunicorn || true
+            nohup gunicorn --bind 127.0.0.1:5000 wsgi:app &
+
