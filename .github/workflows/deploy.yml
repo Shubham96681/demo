@@ -111,12 +111,7 @@ jobs:
             sleep 2
             
             # Create Gunicorn startup script
-            cat > /var/www/flask-cicd-demo/start_gunicorn.sh << 'EOF'
-#!/bin/bash
-cd /var/www/flask-cicd-demo
-source venv/bin/activate
-gunicorn --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile /var/www/flask-cicd-demo/gunicorn_access.log --error-logfile /var/www/flask-cicd-demo/gunicorn_error.log wsgi:app
-EOF
+            printf '#!/bin/bash\ncd /var/www/flask-cicd-demo\nsource venv/bin/activate\ngunicorn --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile /var/www/flask-cicd-demo/gunicorn_access.log --error-logfile /var/www/flask-cicd-demo/gunicorn_error.log wsgi:app\n' > /var/www/flask-cicd-demo/start_gunicorn.sh
             
             chmod +x /var/www/flask-cicd-demo/start_gunicorn.sh
             
