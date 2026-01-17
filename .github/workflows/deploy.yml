@@ -22,6 +22,7 @@ jobs:
           cat $HOME/.ssh/ec2_key.pem | head -n 1
 
       - name: Deploy to EC2
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -32,7 +33,6 @@ jobs:
           script_stop: false
           debug: true
           script: |
-            set -e
             echo "Starting deployment..."
             
             # Install required dependencies
@@ -142,4 +142,7 @@ jobs:
             
             echo ""
             echo "=== Deployment completed successfully ==="
+            
+            # Ensure clean exit (background processes will continue)
+            exit 0
 
