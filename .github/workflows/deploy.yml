@@ -110,44 +110,55 @@ jobs:
             pkill -f gunicorn || true
             sleep 2
             
-            # Start Gunicorn with proper error handling
-            cd /var/www/flask-cicd-demo
-            source venv/bin/activate
-            GUNICORN_CMD=$(which gunicorn)
-            echo "Gunicorn location: $GUNICORN_CMD"
-            echo "Working directory: $(pwd)"
+            # Create Gunicorn startup script
+            cat > /var/www/flask-cicd-demo/start_gunicorn.sh << 'EOF'
+#!/bin/bash
+cd /var/www/flask-cicd-demo
+source venv/bin/activate
+gunicorn --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile /var/www/flask-cicd-demo/gunicorn_access.log --error-logfile /var/www/flask-cicd-demo/gunicorn_error.log wsgi:app
+EOF
             
-            # Start Gunicorn in background and capture PID
-            nohup $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile - --error-logfile - wsgi:app > /var/www/flask-cicd-demo/gunicorn.log 2>&1 &
+            chmod +x /var/www/flask-cicd-demo/start_gunicorn.sh
+            
+            # Start Gunicorn using the script
+            cd /var/www/flask-cicd-demo
+            echo "Starting Gunicorn..."
+            nohup /var/www/flask-cicd-demo/start_gunicorn.sh > /var/www/flask-cicd-demo/gunicorn.log 2>&1 &
             GUNICORN_PID=$!
             echo "Gunicorn started with PID: $GUNICORN_PID"
             
-            # Wait longer for Gunicorn to start
-            sleep 5
+            # Wait for Gunicorn to start
+            sleep 8
             
             # Verify Gunicorn is running
-            if ps -p $GUNICORN_PID > /dev/null 2>&1 || pgrep -f gunicorn > /dev/null; then
+            if pgrep -f "gunicorn.*wsgi:app" > /dev/null; then
               echo "✓ Gunicorn process is running"
-              pgrep -af gunicorn | head -n 1
+              pgrep -af "gunicorn.*wsgi:app" | head -n 1
             else
               echo "✗ Gunicorn failed to start. Checking logs:"
-              tail -n 20 /var/www/flask-cicd-demo/gunicorn.log 2>/dev/null || echo "No log file found"
-              echo "Attempting to start Gunicorn again..."
+              echo "=== Gunicorn Log ==="
+              tail -n 30 /var/www/flask-cicd-demo/gunicorn.log 2>/dev/null || echo "No main log file"
+              echo "=== Gunicorn Error Log ==="
+              tail -n 30 /var/www/flask-cicd-demo/gunicorn_error.log 2>/dev/null || echo "No error log file"
+              echo "Attempting direct start..."
               cd /var/www/flask-cicd-demo
               source venv/bin/activate
-              $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 wsgi:app > /var/www/flask-cicd-demo/gunicorn2.log 2>&1 &
+              gunicorn --bind 127.0.0.1:5000 --workers 2 wsgi:app > /var/www/flask-cicd-demo/gunicorn_direct.log 2>&1 &
               sleep 5
+              pgrep -f gunicorn || echo "Still failed to start Gunicorn"
             fi
             
             # Verify Gunicorn is listening on port 5000
+            echo "Verifying Gunicorn is responding..."
             for i in {1..10}; do
-              if timeout 2 curl -s http://127.0.0.1:5000 > /dev/null 2>&1; then
+              if timeout 3 curl -s http://127.0.0.1:5000 > /dev/null 2>&1; then
                 echo "✓ Gunicorn is responding on port 5000"
                 curl -s http://127.0.0.1:5000 | head -c 100
+                echo ""
                 break
               else
-                echo "Waiting for Gunicorn to start... ($i/10)"
-                sleep 2
+                echo "Waiting for Gunicorn... ($i/10)"
+                sleep 3
               fi
             done
             
