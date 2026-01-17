@@ -30,6 +30,17 @@ jobs:
           timeout: 30s
           debug: true
           script: |
+            # Install required dependencies
+            if ! command -v git &> /dev/null; then
+              echo "Installing git..."
+              sudo yum install -y git || sudo apt-get install -y git
+            fi
+            
+            if ! command -v python3 &> /dev/null; then
+              echo "Installing Python3..."
+              sudo yum install -y python3 python3-pip || sudo apt-get install -y python3 python3-pip python3-venv
+            fi
+            
             # Navigate to project directory (create if doesn't exist)
             if [ ! -d "/var/www/flask-cicd-demo" ]; then
               sudo mkdir -p /var/www
@@ -44,15 +55,26 @@ jobs:
             # Setup virtual environment if doesn't exist
             if [ ! -d "venv" ]; then
               python3 -m venv venv
+              # Fix permissions
+              chmod +x venv/bin/activate
             fi
             
             source venv/bin/activate
-            pip install -r requirements.txt
             
-            # Install Nginx if not installed (Amazon Linux)
+            # Upgrade pip and install requirements
+            pip install --upgrade pip || pip3 install --upgrade pip || python3 -m pip install --upgrade pip
+            pip install -r requirements.txt || pip3 install -r requirements.txt || python3 -m pip install -r requirements.txt
+            
+            # Install Nginx and curl if not installed (Amazon Linux)
             if ! command -v nginx &> /dev/null; then
+              echo "Installing Nginx..."
               sudo yum update -y || sudo apt update -y
               sudo yum install -y nginx || sudo apt install -y nginx
+            fi
+            
+            if ! command -v curl &> /dev/null; then
+              echo "Installing curl..."
+              sudo yum install -y curl || sudo apt install -y curl
             fi
             
             # Configure Nginx
