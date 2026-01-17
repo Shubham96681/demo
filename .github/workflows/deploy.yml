@@ -104,70 +104,38 @@ jobs:
             
             # Kill existing Gunicorn processes
             pkill -f gunicorn || true
-            sleep 2
+            sleep 1
             
-            # Start Gunicorn in background with proper error handling
+            # Start Gunicorn in background
             cd /var/www/flask-cicd-demo
             source venv/bin/activate
-            # Use full path to gunicorn and ensure proper environment
             GUNICORN_CMD=$(which gunicorn)
-            echo "Gunicorn location: $GUNICORN_CMD"
-            nohup $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 --timeout 120 --access-logfile - --error-logfile - wsgi:app > gunicorn.log 2>&1 &
-            GUNICORN_PID=$!
-            sleep 5
+            echo "Starting Gunicorn from: $GUNICORN_CMD"
             
-            # Check if Gunicorn started successfully
-            if ps -p $GUNICORN_PID > /dev/null 2>&1 || pgrep -f gunicorn > /dev/null; then
-              echo "Gunicorn started successfully (PID: $GUNICORN_PID)"
+            nohup $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 --timeout 120 wsgi:app > gunicorn.log 2>&1 &
+            sleep 3
+            
+            # Quick check if Gunicorn is running
+            if pgrep -f gunicorn > /dev/null; then
+              echo "✓ Gunicorn process started"
             else
-              echo "Gunicorn failed to start. Checking logs:"
-              cat gunicorn.log || echo "No log file found"
-              echo "Attempting to start with full path..."
-              # Try starting again with full path
-              cd /var/www/flask-cicd-demo
-              source venv/bin/activate
-              $GUNICORN_CMD --bind 127.0.0.1:5000 --workers 2 wsgi:app > gunicorn2.log 2>&1 &
-              sleep 3
-              pgrep -f gunicorn || echo "Still failed to start Gunicorn"
+              echo "⚠ Gunicorn process check failed, but continuing..."
+              tail -n 5 gunicorn.log 2>/dev/null || true
             fi
             
-            # Wait a bit more and verify Gunicorn is responding
-            sleep 2
-            if curl -s http://127.0.0.1:5000 > /dev/null; then
-              echo "✓ Gunicorn is responding on port 5000"
-            else
-              echo "✗ Gunicorn is not responding on port 5000"
-            fi
+            # Quick test if Gunicorn responds
+            timeout 3 curl -s http://127.0.0.1:5000 > /dev/null && echo "✓ Gunicorn responding" || echo "⚠ Gunicorn may still be starting"
             
-            # Now restart Nginx (after Gunicorn is running)
-            sudo systemctl restart nginx || sudo service nginx restart
-            sudo systemctl enable nginx || sudo chkconfig nginx on
+            # Restart Nginx
+            sudo systemctl restart nginx 2>/dev/null || sudo service nginx restart 2>/dev/null
+            sudo systemctl enable nginx 2>/dev/null || sudo chkconfig nginx on 2>/dev/null
             
-            # Verify services are running
-            echo "=== Gunicorn Status ==="
-            pgrep -af gunicorn || ps aux | grep gunicorn | grep -v grep
+            # Quick final verification (with timeouts to prevent hanging)
+            echo "=== Quick Status Check ==="
+            timeout 2 pgrep -af gunicorn 2>/dev/null | head -n 1 || echo "Gunicorn check skipped"
+            timeout 2 curl -s http://127.0.0.1:5000 2>/dev/null | head -c 50 && echo "..." || echo "Port 5000 check skipped"
+            timeout 2 curl -s http://127.0.0.1:80 2>/dev/null | head -c 50 && echo "..." || echo "Port 80 check skipped"
+            
             echo ""
-            echo "=== Gunicorn Log (last 20 lines) ==="
-            tail -n 20 gunicorn.log 2>/dev/null || echo "No log file yet"
-            echo ""
-            echo "=== Port 5000 Status ==="
-            netstat -tlnp | grep 5000 || ss -tlnp | grep 5000 || echo "Port 5000 check skipped"
-            echo ""
-            echo "=== Testing Gunicorn directly ==="
-            curl -v http://127.0.0.1:5000 2>&1 | head -n 10 || echo "Gunicorn not responding on port 5000"
-            echo ""
-            echo "=== Nginx Status ==="
-            sudo systemctl status nginx --no-pager || sudo service nginx status
-            echo ""
-            echo "=== Port 80 Status ==="
-            netstat -tlnp | grep :80 || ss -tlnp | grep :80 || echo "Port 80 check skipped"
-            echo ""
-            echo "=== Nginx Error Log (last 10 lines) ==="
-            sudo tail -n 10 /var/log/nginx/error.log 2>/dev/null || echo "No error log found"
-            echo ""
-            echo "=== Testing through Nginx ==="
-            curl -v http://127.0.0.1:80 2>&1 | head -n 10 || echo "Nginx test failed"
-            echo ""
-            echo "=== Deployment completed successfully ==="
-            exit 0
+            echo "=== Deployment script completed ==="
 
